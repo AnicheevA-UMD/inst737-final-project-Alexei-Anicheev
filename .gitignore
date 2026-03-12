@@ -1,3 +1,34 @@
+# Virtual environment
+.venv/
 venv/
+env/
+ 
+# Python cache
 __pycache__/
-.env
+*.pyc
+ 
+# VS Code settings (optional - remove this line if you want
+# to share interpreter config with collaborators)
+# .vscode/
+ 
+# Raw extracted data (large, re-extractable from API)
+data/extracted/
+ 
+# Transformed intermediary data (reproducible from extract + transform)
+data/transformed/
+ 
+# Merged analysis data (reproducible from load.py)
+data/load/
+ 
+# Model outputs (reproducible from model scripts)
+data/model_outputs/
+ 
+# Generated visualizations (reproducible from vis scripts)
+data/visualizations/
+ 
+# Keep reference tables tracked in git (small, manually curated)
+!data/reference-tables/
+ 
+# OS files
+.DS_Store
+Thumbs.db
