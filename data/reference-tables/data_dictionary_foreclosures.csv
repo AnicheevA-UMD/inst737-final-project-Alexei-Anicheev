@@ -1,0 +1,5 @@
+attribute_name,description,data_type,example_value,unit
+zip_code,5-digit Maryland zip code identifying the geographic area,string,21201,N/A
+year,Calendar year of the observation,integer,2023,year
+quarter,Calendar quarter of the observation (1-4),integer,3,quarter
+foreclosure_notices,Total number of foreclosure notices filed in this zip code during this quarter. Aggregated from monthly counts in the source data which arrives in wide format.,integer,185,count

@@ -1,0 +1,5 @@
+attribute_name,description,data_type,example_value,unit
+zip_code,5-digit Maryland zip code identifying the geographic area. Derived from the facility zip field in the source data which stores zip codes as floats. Filtered to only zip codes present in the foreclosure dataset.,string,20774,N/A
+year,Calendar year of the observation. Derived from the start_date timestamp in the source data.,integer,2024,year
+quarter,Calendar quarter of the observation (1-4). Derived from the start_date timestamp in the source data.,integer,1,quarter
+sewer_overflow_incidents,Total number of reported sewer overflow incidents in this zip code during this quarter. Each row in the source data represents one incident.,integer,3,count

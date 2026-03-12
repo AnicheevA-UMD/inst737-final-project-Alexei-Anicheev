@@ -1,0 +1,5 @@
+attribute_name,description,data_type,example_value,unit
+zip_code,5-digit Maryland zip code identifying the geographic area. Filtered to only zip codes present in the foreclosure dataset to exclude out-of-state records.,string,20601,N/A
+year,Calendar year of the observation,integer,2023,year
+quarter,Calendar quarter of the observation (1-4). Derived from the year_month field in the source data.,integer,2,quarter
+ev_registrations,Total number of electric and plug-in hybrid vehicle registrations in this zip code during this quarter. Combines both Electric and Plug-in Hybrid fuel categories from the source data.,integer,142,count

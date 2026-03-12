@@ -1,0 +1,8 @@
+attribute_name,description,data_type,example_value,unit
+record_id,Composite unique identifier combining zip_code year and quarter. Format: [zip]_[year]_Q[quarter].,string,21201_2023_Q3,N/A
+zip_code,5-digit Maryland zip code. Only zip codes appearing in the foreclosure dataset are included serving as the ground truth for valid Maryland zip codes.,string,21201,N/A
+year,Calendar year of the observation. Filtered to 2023-2025 where all three source datasets have coverage.,integer,2023,year
+quarter,Calendar quarter of the observation (1-4).,integer,3,quarter
+foreclosure_notices,Total foreclosure notices filed in this zip-quarter. Filled with 0 where no source record existed within the 2023-2025 window since no record means zero activity.,integer,185,count
+ev_registrations,Total EV and plug-in hybrid registrations in this zip-quarter. Filled with 0 where no source record existed. Combines Electric and Plug-in Hybrid categories.,integer,142,count
+sewer_overflow_incidents,Total reported sewer overflow incidents in this zip-quarter. Filled with 0 where no source record existed.,integer,3,count

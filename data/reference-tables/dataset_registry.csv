@@ -1,0 +1,4 @@
+dataset_key,dataset_name,socrata_endpoint,source_url,coverage_start_year,coverage_end_year,geographic_grain,raw_filename,clean_filename
+foreclosures,Maryland Notices of Intent to Foreclose by Zip Code,ftsr-vapt,https://opendata.maryland.gov/Housing/Maryland-Notices-of-Intent-to-Foreclose-by-Zip-Cod/ftsr-vapt/about_data,2022,2026,zip_code,foreclosures_raw.csv,foreclosures_clean.csv
+ev_registrations,MDOT MVA Electric and Plug-in Hybrid Vehicle Registrations,tugr-unu9,https://opendata.maryland.gov/Transportation/MDOT-MVA-Electric-and-Plug-in-Hybrid-Vehicle-Regis/tugr-unu9/about_data,2020,2025,zip_code,ev_registrations_raw.csv,ev_registrations_clean.csv
+sewer_overflows,Reported Sewer Overflows (2023+),stgj-u72u,https://opendata.maryland.gov/Government/Reported-Sewer-Overflows-New-for-2023-/stgj-u72u/about_data,2023,2026,zip_code,sewer_overflows_raw.csv,sewer_overflows_clean.csv
