@@ -14,7 +14,8 @@ Which secondary indicators might work where conventional ones are already well-t
 
 Can these be used to make useful predictions?
 
-- Datasets: 
+Datasets: 
+
 foreclosures dataset - number of foreclosures in specific zipcodes by year and month. Wide structure, requires melt to long structure to function.
 
 EV_registrations dataset - number of EVs registered by month in specific zipcodes
@@ -29,7 +30,8 @@ Additionally, the EV dataset has an issue where there are non-Maryland zip codes
 
 Additional datasets will be added in part 3 as the analysis so far is preliminary and additional datasets along with additional analytical models would improve things.
 
-- Techniques:
+Techniques:
+
 ETL pipeline with automated API extraction - no Socrata token is needed, relatively clean and not many issues.
 
 EDA during transformation stage - visualizations of distributions to confirm that transformation is successful
