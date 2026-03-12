@@ -192,7 +192,8 @@ def transform_foreclosures(filepath):
     The Socrata API returns this dataset in a wide format where
     each row is a zip code and each column is a month (e.g.,
     'july_2022') with the foreclosure notice count as the value.
-    Overall, a deeply unfortunate sort of formatting. This function melts the wide structure into a long
+    Because apparently giving us tidy data would have been too
+    generous. This function melts the wide structure into a long
     format, parses month-year column names into proper dates, and
     aggregates to the zip-quarter level.
 
@@ -374,6 +375,38 @@ def transform_sewer_overflows(filepath):
     return aggregated
 
 
+# ── Future Dataset Transformers ─────────────────────────────────
+# To add a new dataset, create a function following this template.
+# Each transformer should:
+#   1. Read the raw CSV from data/extracted/
+#   2. Standardize zip codes using standardize_zip()
+#   3. Parse dates into year and quarter
+#   4. Aggregate to the (zip_code, year, quarter) grain
+#   5. Return a clean DataFrame
+#
+# def transform_new_dataset(filepath):
+#     """
+#     Clean and standardize the [dataset name] dataset.
+#
+#     Parameters
+#     ----------
+#     filepath : Path
+#         Path to the raw CSV in data/extracted/.
+#
+#     Returns
+#     -------
+#     pd.DataFrame
+#         Cleaned dataset with columns: zip_code, year, quarter,
+#         [indicator_name].
+#     """
+#     dataframe = pd.read_csv(filepath, dtype=str)
+#     dataframe.columns = dataframe.columns.str.strip().str.lower().str.replace(" ", "_")
+#     zip_col = find_column(dataframe, ["zip_code", "zipcode", "zip"])
+#     dataframe["zip_code"] = standardize_zip(dataframe[zip_col])
+#     # TODO: parse dates, extract indicator, aggregate
+#     return dataframe
+
+
 # ── Main Entry Point ────────────────────────────────────────────
 
 
@@ -421,6 +454,18 @@ def main():
     sewer_overflows.to_csv(TRANSFORMED_DIR / "sewer_overflows_clean.csv",
                            index=False)
     run_eda(sewer_overflows, "Sewer Overflows")
+
+    # ── Future datasets ──
+    # Add new dataset transformations here as they are added to
+    # extract.py. Follow the same pattern:
+    #
+    # print("\nTransforming [new dataset] data ...")
+    # new_dataset = transform_new_dataset(
+    #     EXTRACTED_DIR / "new_dataset_raw.csv"
+    # )
+    # new_dataset.to_csv(TRANSFORMED_DIR / "new_dataset_clean.csv",
+    #                     index=False)
+    # run_eda(new_dataset, "New Dataset")
 
     print("\nTransformation complete. Cleaned files in data/transformed/")
 

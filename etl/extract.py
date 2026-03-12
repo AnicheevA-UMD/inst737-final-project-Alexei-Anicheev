@@ -44,6 +44,25 @@ DATASETS = {
         "filename": "sewer_overflows_raw.csv",
         "description": "Reported sewer overflow incidents with location data",
     },
+    # ── Future Datasets ─────────────────────────────────────
+    # To add a new dataset, copy the template below and fill in
+    # the Socrata endpoint. It will automatically be extracted
+    # alongside the existing datasets.
+    #
+    # "dataset_name": {
+    #     "name": "Human-Readable Dataset Name",
+    #     "endpoint": "xxxx-xxxx",  # Socrata 4x4 identifier
+    #     "filename": "dataset_name_raw.csv",
+    #     "description": "Brief description of what this covers",
+    # },
+    #
+    # Candidate datasets under consideration for Parts 3-4:
+    # - Unemployment insurance claims by county
+    # - Building permit issuance rates
+    # - Property tax assessment changes
+    # - Broadband access statistics
+    # - Public transit ridership figures
+    # - Anything else that could fit as an economic indicator
 }
 
 # Base URL template for Socrata API requests
@@ -137,6 +156,7 @@ def fetch_dataset(endpoint, app_token=None, limit=50000, max_records=None):
     print(f"  DONE: {len(dataset)} total records retrieved")
     return dataset
 
+
 def save_extracted(dataframe, filename):
     """
     Save a raw DataFrame to CSV in the data/extracted/ directory.
@@ -183,6 +203,7 @@ def print_data_profile(dataframe):
     print(f"\n  Shape: {dataframe.shape}")
     print(f"  Columns: {list(dataframe.columns)}")
     print(f"  Data types:\n{dataframe.dtypes.to_string()}\n")
+
 
 def main():
     """

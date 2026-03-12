@@ -3,7 +3,8 @@ load.py - Data Loading and Merging
 ===================================
 Reads cleaned datasets from data/transformed/, merges them into
 a single analysis-ready dataset keyed on (zip_code, year, quarter),
-and saves the result to data/load/.
+assigns a composite unique ID to each record, and saves the result
+to data/load/.
 
 This is the final stage of the ETL pipeline. The output in
 data/load/ is what the analysis and visualization stages consume.
@@ -29,8 +30,11 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
 
     Uses an outer join on (zip_code, year, quarter) so that all
     zip-quarter combinations are preserved even if only one dataset
-    has data for that period. After merging, NaN values in count
-    columns are filled with 0 since no record means zero activity.
+    has data for that period. Filters to 2023-2025, the range
+    where all three datasets have real coverage, to avoid filling
+    zeros for years where data simply does not exist. After
+    filtering, NaN values in count columns are filled with 0
+    since no record means zero activity within the covered range.
 
     Parameters
     ----------
@@ -58,9 +62,20 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     merged = foreclosures.merge(ev_registrations, on=join_keys, how="outer")
     merged = merged.merge(sewer_overflows, on=join_keys, how="outer")
 
+    # ── Future datasets: add additional merges here ──
+    # merged = merged.merge(new_dataset, on=join_keys, how="outer")
+
+    # Filter to 2023-2025 where all three datasets have real coverage
+    # Before 2023: no sewer data exists, so zeros would be misleading
+    # After 2025: EV data cuts off, same problem
+    # NOTE: revisit this range when adding new datasets — their
+    # coverage may extend or narrow the valid window
+    merged = merged[(merged["year"] >= 2023) & (merged["year"] <= 2025)]
+
     # Fill NaN with 0 for count-based indicator columns
-    # This is appropriate because all indicators are counts:
-    # no record means zero activity, not unknown activity
+    # Now safe because within 2023-2025, all datasets have coverage
+    # and no record genuinely means zero activity
+    # NOTE: add new indicator column names here as datasets are added
     count_columns = ["foreclosure_notices", "ev_registrations",
                      "sewer_overflow_incidents"]
     for col in count_columns:
@@ -70,6 +85,46 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     # Sort for readability: by zip code, then chronologically
     merged.sort_values(join_keys, inplace=True)
     merged.reset_index(drop=True, inplace=True)
+
+    return merged
+
+
+def create_unique_ids(merged):
+    """
+    Add a composite unique ID column to the merged dataset.
+
+    Creates an ID by combining zip_code, year, and quarter into
+    a single string (e.g., '21201_2023_Q3'). This serves as a
+    robust unique identifier for each row since no two rows
+    should share the same zip-quarter combination.
+
+    Parameters
+    ----------
+    merged : pd.DataFrame
+        The merged dataset with zip_code, year, and quarter columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same dataset with 'record_id' added as the first column.
+    """
+    # Build composite ID from the three key columns
+    merged["record_id"] = (
+        merged["zip_code"].astype(str) + "_"
+        + merged["year"].astype(str) + "_Q"
+        + merged["quarter"].astype(str)
+    )
+
+    # Move record_id to the first column for readability
+    columns = ["record_id"] + [col for col in merged.columns if col != "record_id"]
+    merged = merged[columns]
+
+    # Verify uniqueness - flag if any duplicates exist
+    duplicate_count = merged["record_id"].duplicated().sum()
+    if duplicate_count > 0:
+        print(f"  WARNING: {duplicate_count} duplicate IDs found")
+    else:
+        print(f"  Unique IDs created: {len(merged)} records, all unique")
 
     return merged
 
@@ -134,9 +189,19 @@ def main():
     sewer_overflows = pd.read_csv(TRANSFORMED_DIR / "sewer_overflows_clean.csv")
     print(f"  Sewer overflows:  {len(sewer_overflows)} records")
 
+    # ── Future datasets: load additional cleaned CSVs here ──
+    # new_dataset = pd.read_csv(TRANSFORMED_DIR / "new_dataset_clean.csv")
+    # print(f"  New dataset:      {len(new_dataset)} records")
+
     # Merge all datasets on (zip_code, year, quarter)
+    # NOTE: when adding new datasets, pass them to merge_datasets()
+    # and add a corresponding merge step inside that function
     print("\nMerging datasets ...")
     merged = merge_datasets(foreclosures, ev_registrations, sewer_overflows)
+
+    # Create composite unique IDs for each record
+    print("\nCreating unique IDs ...")
+    merged = create_unique_ids(merged)
 
     # Save the analysis-ready dataset to data/load/
     output_path = LOAD_DIR / "merged_analysis.csv"
