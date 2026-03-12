@@ -28,11 +28,16 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     """
     Merge all cleaned datasets into one analysis-ready DataFrame.
 
+    Before merging, filters secondary datasets (EV registrations,
+    sewer overflows) to only include zip codes present in the
+    foreclosure dataset, which serves as the ground truth for
+    valid Maryland zip codes. The EV dataset in particular contains
+    out-of-state registrations that are erroneous for this analysis.
+
     Uses an outer join on (zip_code, year, quarter) so that all
-    zip-quarter combinations are preserved even if only one dataset
-    has data for that period. Filters to 2023-2025, the range
-    where all three datasets have real coverage, to avoid filling
-    zeros for years where data simply does not exist. After
+    zip-quarter combinations are preserved. Filters to 2023-2025,
+    the range where all three datasets have real coverage, to avoid
+    filling zeros for years where data simply does not exist. After
     filtering, NaN values in count columns are filled with 0
     since no record means zero activity within the covered range.
 
@@ -57,13 +62,33 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     # Define the columns that all three datasets share
     join_keys = ["zip_code", "year", "quarter"]
 
+    # Use foreclosure zip codes as the ground truth for valid
+    # Maryland zip codes. The EV dataset contains out-of-state
+    # registrations that are erroneous for this analysis, so we
+    # restrict all secondary datasets to only zip codes that
+    # appear in the foreclosure data.
+    maryland_zips = set(foreclosures["zip_code"].unique())
+    ev_filtered = ev_registrations[
+        ev_registrations["zip_code"].isin(maryland_zips)
+    ].copy()
+    sewer_filtered = sewer_overflows[
+        sewer_overflows["zip_code"].isin(maryland_zips)
+    ].copy()
+
+    ev_dropped = len(ev_registrations) - len(ev_filtered)
+    sewer_dropped = len(sewer_overflows) - len(sewer_filtered)
+    print(f"  Filtered to {len(maryland_zips)} Maryland zip codes")
+    print(f"  EV records dropped (out-of-state): {ev_dropped}")
+    print(f"  Sewer records dropped (out-of-state): {sewer_dropped}")
+
     # Outer join: keeps all zip-quarter combinations from every
     # dataset, filling NaN where one dataset has no matching row
-    merged = foreclosures.merge(ev_registrations, on=join_keys, how="outer")
-    merged = merged.merge(sewer_overflows, on=join_keys, how="outer")
+    merged = foreclosures.merge(ev_filtered, on=join_keys, how="outer")
+    merged = merged.merge(sewer_filtered, on=join_keys, how="outer")
 
     # ── Future datasets: add additional merges here ──
-    # merged = merged.merge(new_dataset, on=join_keys, how="outer")
+    # NOTE: new datasets will also be filtered to maryland_zips above
+    # merged = merged.merge(new_dataset_filtered, on=join_keys, how="outer")
 
     # Filter to 2023-2025 where all three datasets have real coverage
     # Before 2023: no sewer data exists, so zeros would be misleading
