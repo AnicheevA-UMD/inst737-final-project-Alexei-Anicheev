@@ -1,0 +1,5 @@
+attribute_name,description,data_type,example_value,unit
+zip_code,5-digit Maryland zip code extracted from the combined city/state/zip field in the source data. Filtered to only zip codes present in the foreclosure dataset.,string,21226,N/A
+year,Calendar year of the violation. Parsed from the violation_date field which uses DD/MM/YYYY format.,integer,2024,year
+quarter,Calendar quarter of the violation (1-4). Derived from the violation_date field.,integer,2,quarter
+waste_violation_events,Number of unique violation dates in this zip code during this quarter. Counts unique dates rather than individual violation rows because a single site inspection can generate multiple violation records.,integer,3,count

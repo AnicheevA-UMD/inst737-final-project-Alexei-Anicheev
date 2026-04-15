@@ -24,19 +24,21 @@ TRANSFORMED_DIR = PROJECT_ROOT / "data" / "transformed"
 LOAD_DIR = PROJECT_ROOT / "data" / "load"
 
 
-def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
+def merge_datasets(foreclosures, ev_registrations, sewer_overflows,
+                   waste_violations):
     """
     Merge all cleaned datasets into one analysis-ready DataFrame.
 
     Before merging, filters secondary datasets (EV registrations,
-    sewer overflows) to only include zip codes present in the
-    foreclosure dataset, which serves as the ground truth for
-    valid Maryland zip codes. The EV dataset in particular contains
-    out-of-state registrations that are erroneous for this analysis.
+    sewer overflows, waste violations) to only include zip codes
+    present in the foreclosure dataset, which serves as the ground
+    truth for valid Maryland zip codes. The EV dataset in particular
+    contains out-of-state registrations that are erroneous for this
+    analysis.
 
     Uses an outer join on (zip_code, year, quarter) so that all
     zip-quarter combinations are preserved. Filters to 2023-2025,
-    the range where all three datasets have real coverage, to avoid
+    the range where all datasets have real coverage, to avoid
     filling zeros for years where data simply does not exist. After
     filtering, NaN values in count columns are filled with 0
     since no record means zero activity within the covered range.
@@ -52,6 +54,9 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     sewer_overflows : pd.DataFrame
         Cleaned sewer overflows with columns: zip_code, year,
         quarter, sewer_overflow_incidents.
+    waste_violations : pd.DataFrame
+        Cleaned waste violations with columns: zip_code, year,
+        quarter, waste_violation_events.
 
     Returns
     -------
@@ -74,23 +79,25 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     sewer_filtered = sewer_overflows[
         sewer_overflows["zip_code"].isin(maryland_zips)
     ].copy()
+    waste_filtered = waste_violations[
+        waste_violations["zip_code"].isin(maryland_zips)
+    ].copy()
 
     ev_dropped = len(ev_registrations) - len(ev_filtered)
     sewer_dropped = len(sewer_overflows) - len(sewer_filtered)
+    waste_dropped = len(waste_violations) - len(waste_filtered)
     print(f"  Filtered to {len(maryland_zips)} Maryland zip codes")
     print(f"  EV records dropped (out-of-state): {ev_dropped}")
     print(f"  Sewer records dropped (out-of-state): {sewer_dropped}")
+    print(f"  Waste records dropped (out-of-state): {waste_dropped}")
 
     # Outer join: keeps all zip-quarter combinations from every
     # dataset, filling NaN where one dataset has no matching row
     merged = foreclosures.merge(ev_filtered, on=join_keys, how="outer")
     merged = merged.merge(sewer_filtered, on=join_keys, how="outer")
+    merged = merged.merge(waste_filtered, on=join_keys, how="outer")
 
-    # ── Future datasets: add additional merges here ──
-    # NOTE: new datasets will also be filtered to maryland_zips above
-    # merged = merged.merge(new_dataset_filtered, on=join_keys, how="outer")
-
-    # Filter to 2023-2025 where all three datasets have real coverage
+    # Filter to 2023-2025 where all datasets have real coverage
     # Before 2023: no sewer data exists, so zeros would be misleading
     # After 2025: EV data cuts off, same problem
     # NOTE: revisit this range when adding new datasets — their
@@ -100,9 +107,8 @@ def merge_datasets(foreclosures, ev_registrations, sewer_overflows):
     # Fill NaN with 0 for count-based indicator columns
     # Now safe because within 2023-2025, all datasets have coverage
     # and no record genuinely means zero activity
-    # NOTE: add new indicator column names here as datasets are added
     count_columns = ["foreclosure_notices", "ev_registrations",
-                     "sewer_overflow_incidents"]
+                     "sewer_overflow_incidents", "waste_violation_events"]
     for col in count_columns:
         if col in merged.columns:
             merged[col] = merged[col].fillna(0).astype(int)
@@ -214,15 +220,13 @@ def main():
     sewer_overflows = pd.read_csv(TRANSFORMED_DIR / "sewer_overflows_clean.csv")
     print(f"  Sewer overflows:  {len(sewer_overflows)} records")
 
-    # ── Future datasets: load additional cleaned CSVs here ──
-    # new_dataset = pd.read_csv(TRANSFORMED_DIR / "new_dataset_clean.csv")
-    # print(f"  New dataset:      {len(new_dataset)} records")
+    waste_violations = pd.read_csv(TRANSFORMED_DIR / "waste_violations_clean.csv")
+    print(f"  Waste violations: {len(waste_violations)} records")
 
     # Merge all datasets on (zip_code, year, quarter)
-    # NOTE: when adding new datasets, pass them to merge_datasets()
-    # and add a corresponding merge step inside that function
     print("\nMerging datasets ...")
-    merged = merge_datasets(foreclosures, ev_registrations, sewer_overflows)
+    merged = merge_datasets(foreclosures, ev_registrations, sewer_overflows,
+                            waste_violations)
 
     # Create composite unique IDs for each record
     print("\nCreating unique IDs ...")

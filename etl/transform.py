@@ -383,28 +383,72 @@ def transform_sewer_overflows(filepath):
 #   3. Parse dates into year and quarter
 #   4. Aggregate to the (zip_code, year, quarter) grain
 #   5. Return a clean DataFrame
-#
-# def transform_new_dataset(filepath):
-#     """
-#     Clean and standardize the [dataset name] dataset.
-#
-#     Parameters
-#     ----------
-#     filepath : Path
-#         Path to the raw CSV in data/extracted/.
-#
-#     Returns
-#     -------
-#     pd.DataFrame
-#         Cleaned dataset with columns: zip_code, year, quarter,
-#         [indicator_name].
-#     """
-#     dataframe = pd.read_csv(filepath, dtype=str)
-#     dataframe.columns = dataframe.columns.str.strip().str.lower().str.replace(" ", "_")
-#     zip_col = find_column(dataframe, ["zip_code", "zipcode", "zip"])
-#     dataframe["zip_code"] = standardize_zip(dataframe[zip_col])
-#     # TODO: parse dates, extract indicator, aggregate
-#     return dataframe
+
+
+def transform_waste_violations(filepath):
+    """
+    Clean and standardize the solid waste violations dataset.
+
+    The API returns one row per violation, with zip codes embedded
+    in a combined 'city, state zip' field (format: 'Curtis Bay,MD,21226')
+    and dates in DD/MM/YYYY format. A single site inspection can
+    generate multiple violation rows, so we count unique violation
+    dates per zip-quarter rather than raw rows to avoid inflating
+    counts from multi-violation inspections.
+
+    Parameters
+    ----------
+    filepath : Path
+        Path to the raw waste violations CSV in data/extracted/.
+
+    Returns
+    -------
+    pd.DataFrame
+        Cleaned dataset with columns: zip_code, year, quarter,
+        waste_violation_events.
+    """
+    dataframe = pd.read_csv(filepath, dtype=str)
+    dataframe.columns = dataframe.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    # Extract zip codes from the combined city/state/zip field
+    # Format: 'Curtis Bay,MD,21226' or similar
+    city_state_zip_col = find_column(dataframe, ["city,_state_zip",
+                                                  "city_state_zip"])
+    if city_state_zip_col:
+        dataframe["zip_code"] = standardize_zip(dataframe[city_state_zip_col])
+    else:
+        # Fall back to a dedicated zip column if format changed
+        zip_col = find_column(dataframe, ["zip_code", "zipcode", "zip"])
+        if zip_col:
+            dataframe["zip_code"] = standardize_zip(dataframe[zip_col])
+
+    # Parse violation dates (DD/MM/YYYY format)
+    date_col = find_column(dataframe, ["violation_date", "date",
+                                        "violation_dt"])
+    if date_col:
+        parsed_dates = pd.to_datetime(dataframe[date_col],
+                                       format="%d/%m/%Y", errors="coerce")
+        # If DD/MM/YYYY didn't work for most rows, try MM/DD/YYYY
+        if parsed_dates.isna().sum() > len(dataframe) * 0.5:
+            parsed_dates = pd.to_datetime(dataframe[date_col],
+                                           format="%m/%d/%Y", errors="coerce")
+        dataframe["year"] = parsed_dates.dt.year
+        dataframe["quarter"] = parsed_dates.dt.quarter
+        dataframe["violation_date_clean"] = parsed_dates.dt.date
+
+    # Count unique violation dates per zip-quarter to control for
+    # multi-violation inspections (one inspection of a single site
+    # can generate 10+ violation rows)
+    aggregated = (
+        dataframe.dropna(subset=["zip_code", "year", "quarter"])
+        .groupby(["zip_code", "year", "quarter"], as_index=False)
+        .agg(waste_violation_events=("violation_date_clean", "nunique"))
+    )
+    aggregated["year"] = aggregated["year"].astype(int)
+    aggregated["quarter"] = aggregated["quarter"].astype(int)
+
+    print(f"  Waste violations: {len(aggregated)} zip-quarter records")
+    return aggregated
 
 
 # ── Main Entry Point ────────────────────────────────────────────
@@ -455,17 +499,14 @@ def main():
                            index=False)
     run_eda(sewer_overflows, "Sewer Overflows")
 
-    # ── Future datasets ──
-    # Add new dataset transformations here as they are added to
-    # extract.py. Follow the same pattern:
-    #
-    # print("\nTransforming [new dataset] data ...")
-    # new_dataset = transform_new_dataset(
-    #     EXTRACTED_DIR / "new_dataset_raw.csv"
-    # )
-    # new_dataset.to_csv(TRANSFORMED_DIR / "new_dataset_clean.csv",
-    #                     index=False)
-    # run_eda(new_dataset, "New Dataset")
+    # Transform solid waste violations data
+    print("\nTransforming waste violations data ...")
+    waste_violations = transform_waste_violations(
+        EXTRACTED_DIR / "waste_violations_raw.csv"
+    )
+    waste_violations.to_csv(TRANSFORMED_DIR / "waste_violations_clean.csv",
+                            index=False)
+    run_eda(waste_violations, "Waste Violations")
 
     print("\nTransformation complete. Cleaned files in data/transformed/")
 

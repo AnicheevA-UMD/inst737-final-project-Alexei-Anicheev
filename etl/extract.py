@@ -44,6 +44,12 @@ DATASETS = {
         "filename": "sewer_overflows_raw.csv",
         "description": "Reported sewer overflow incidents with location data",
     },
+    "waste_violations": {
+        "name": "MDE Land Management - Solid Waste Program Violations",
+        "endpoint": "tzjz-wfys",
+        "filename": "waste_violations_raw.csv",
+        "description": "Solid waste program violations (illegal dumping, hazardous waste, etc.) by site location",
+    },
     # ── Future Datasets ─────────────────────────────────────
     # To add a new dataset, copy the template below and fill in
     # the Socrata endpoint. It will automatically be extracted
@@ -55,14 +61,6 @@ DATASETS = {
     #     "filename": "dataset_name_raw.csv",
     #     "description": "Brief description of what this covers",
     # },
-    #
-    # Candidate datasets under consideration for Parts 3-4:
-    # - Unemployment insurance claims by county
-    # - Building permit issuance rates
-    # - Property tax assessment changes
-    # - Broadband access statistics
-    # - Public transit ridership figures
-    # - Anything else that could fit as an economic indicator
 }
 
 # Base URL template for Socrata API requests
