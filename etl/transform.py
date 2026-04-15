@@ -391,7 +391,8 @@ def transform_waste_violations(filepath):
 
     The API returns one row per violation, with zip codes embedded
     in a combined 'city, state zip' field (format: 'Curtis Bay,MD,21226')
-    and dates in DD/MM/YYYY format. A single site inspection can
+    and dates as ISO timestamps from the API (e.g.,
+    '2021-10-14T09:36:32.204') or DD/MM/YYYY from CSV downloads. A single site inspection can
     generate multiple violation rows, so we count unique violation
     dates per zip-quarter rather than raw rows to avoid inflating
     counts from multi-violation inspections.
@@ -422,13 +423,20 @@ def transform_waste_violations(filepath):
         if zip_col:
             dataframe["zip_code"] = standardize_zip(dataframe[zip_col])
 
-    # Parse violation dates (DD/MM/YYYY format)
+    # Parse violation dates - the API returns ISO timestamps
+    # (e.g., '2021-10-14T09:36:32.204') while the CSV download
+    # uses DD/MM/YYYY format. We try general parsing first which
+    # handles both, then fall back to specific formats.
     date_col = find_column(dataframe, ["violation_date", "date",
                                         "violation_dt"])
     if date_col:
-        parsed_dates = pd.to_datetime(dataframe[date_col],
-                                       format="%d/%m/%Y", errors="coerce")
-        # If DD/MM/YYYY didn't work for most rows, try MM/DD/YYYY
+        # General parsing handles ISO, YYYY-MM-DD, and most formats
+        parsed_dates = pd.to_datetime(dataframe[date_col], errors="coerce")
+        # If general parsing failed for most rows, try DD/MM/YYYY
+        if parsed_dates.isna().sum() > len(dataframe) * 0.5:
+            parsed_dates = pd.to_datetime(dataframe[date_col],
+                                           format="%d/%m/%Y", errors="coerce")
+        # If that also failed, try MM/DD/YYYY
         if parsed_dates.isna().sum() > len(dataframe) * 0.5:
             parsed_dates = pd.to_datetime(dataframe[date_col],
                                            format="%m/%d/%Y", errors="coerce")
