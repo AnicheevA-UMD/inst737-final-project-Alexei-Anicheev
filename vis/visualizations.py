@@ -16,12 +16,19 @@ Usage:
     python vis/visualizations.py
 """
 
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from scipy import stats
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Path setup - this file is in vis/, so .parent.parent reaches
@@ -335,6 +342,140 @@ def plot_model_comparison(kmeans_zips, dbscan_zips):
     print("  Saved: model_comparison.png")
 
 
+# ── Random Forest Visualizations ────────────────────────────────
+
+
+def plot_rf_feature_importance():
+    """
+    Plot feature importance rankings from the Random Forest model.
+
+    Reads from rf_feature_importances.csv saved by model_3.py so
+    that the live model object is not required.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+    """
+    importances = pd.read_csv(
+        MODEL_OUTPUT_DIR / "rf_feature_importances.csv"
+    ).sort_values("importance", ascending=True)
+
+    fig, ax = plt.subplots(
+        figsize=(8, max(4, len(importances) * 0.5))
+    )
+    ax.barh(importances["feature"], importances["importance"],
+            color="steelblue", edgecolor="white")
+    ax.set_title("Random Forest: Feature Importance",
+                 fontsize=13, fontweight="bold")
+    ax.set_xlabel("Importance (Mean Decrease in Impurity)")
+    plt.tight_layout()
+    fig.savefig(VISUALIZATIONS_DIR / "rf_feature_importance.png",
+                dpi=150, bbox_inches="tight")
+    plt.close()
+    print("  Saved: rf_feature_importance.png")
+
+
+def plot_rf_actual_vs_predicted():
+    """
+    Scatter plot comparing actual vs predicted foreclosure counts
+    for both training and test sets.
+
+    Reads predictions from rf_predictions.csv and metrics from
+    rf_evaluation_metrics.csv, both saved by model_3.py.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+    """
+    predictions = pd.read_csv(MODEL_OUTPUT_DIR / "rf_predictions.csv")
+    metrics = pd.read_csv(MODEL_OUTPUT_DIR / "rf_evaluation_metrics.csv")
+
+    train_data = predictions[predictions["split"] == "train"]
+    test_data = predictions[predictions["split"] == "test"]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Training set
+    ax1.scatter(train_data["actual"], train_data["predicted"],
+                alpha=0.3, s=20, edgecolor="white")
+    max_val = max(train_data["actual"].max(),
+                  train_data["predicted"].max())
+    ax1.plot([0, max_val], [0, max_val], "r--", linewidth=2,
+             label="Perfect prediction")
+    ax1.set_xlabel("Actual Foreclosure Notices")
+    ax1.set_ylabel("Predicted Foreclosure Notices")
+    train_r2 = metrics["train_r2"].iloc[0]
+    ax1.set_title(f"Training Set (R² = {train_r2:.3f})")
+    ax1.legend()
+
+    # Test set
+    ax2.scatter(test_data["actual"], test_data["predicted"],
+                alpha=0.3, s=20, edgecolor="white", color="coral")
+    max_val = max(test_data["actual"].max(),
+                  test_data["predicted"].max())
+    ax2.plot([0, max_val], [0, max_val], "r--", linewidth=2,
+             label="Perfect prediction")
+    ax2.set_xlabel("Actual Foreclosure Notices")
+    ax2.set_ylabel("Predicted Foreclosure Notices")
+    test_r2 = metrics["test_r2"].iloc[0]
+    ax2.set_title(f"Test Set (R² = {test_r2:.3f})")
+    ax2.legend()
+
+    fig.suptitle("Random Forest: Actual vs Predicted",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    fig.savefig(VISUALIZATIONS_DIR / "rf_actual_vs_predicted.png",
+                dpi=150, bbox_inches="tight")
+    plt.close()
+    print("  Saved: rf_actual_vs_predicted.png")
+
+
+def plot_rf_residuals():
+    """
+    Histogram of prediction residuals from the Random Forest test
+    set. Shows whether errors are randomly distributed or have
+    systematic patterns.
+
+    Reads from rf_predictions.csv saved by model_3.py.
+
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    None
+    """
+    predictions = pd.read_csv(MODEL_OUTPUT_DIR / "rf_predictions.csv")
+    test_data = predictions[predictions["split"] == "test"]
+    residuals = test_data["actual"] - test_data["predicted"]
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(residuals, bins=40, edgecolor="white", alpha=0.8)
+    ax.axvline(0, color="red", linestyle="--", linewidth=2)
+    ax.set_xlabel("Residual (Actual - Predicted)")
+    ax.set_ylabel("Count")
+    ax.set_title("Random Forest: Test Set Residuals",
+                 fontsize=13, fontweight="bold")
+    median_residual = residuals.median()
+    ax.axvline(median_residual, color="orange", linestyle="--",
+               label=f"Median: {median_residual:.1f}")
+    ax.legend()
+    plt.tight_layout()
+    fig.savefig(VISUALIZATIONS_DIR / "rf_residuals.png",
+                dpi=150, bbox_inches="tight")
+    plt.close()
+    print("  Saved: rf_residuals.png")
+
+
 # ── Main Entry Point ────────────────────────────────────────────
 
 
@@ -354,31 +495,65 @@ def main():
     None
     """
     VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Starting visualization stage")
 
-    # Load the merged analysis dataset
+    # Load the merged analysis dataset and model outputs
+    # These are hard requirements since every chart needs them
     print("\nLoading data ...")
-    dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
-    print(f"  Merged dataset: {len(dataframe)} records")
+    try:
+        dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+        kmeans_zips = pd.read_csv(
+            MODEL_OUTPUT_DIR / "kmeans_labeled_zips.csv"
+        )
+        dbscan_zips = pd.read_csv(
+            MODEL_OUTPUT_DIR / "dbscan_labeled_zips.csv"
+        )
+    except FileNotFoundError as error:
+        logger.error(f"Required input missing: {error}", exc_info=True)
+        print(f"\n  ❌ Required input missing: {error}")
+        print("  Run the ETL and analysis stages first.")
+        sys.exit(1)
 
-    # Load model outputs
-    kmeans_zips = pd.read_csv(MODEL_OUTPUT_DIR / "kmeans_labeled_zips.csv")
-    dbscan_zips = pd.read_csv(MODEL_OUTPUT_DIR / "dbscan_labeled_zips.csv")
+    print(f"  Merged dataset: {len(dataframe)} records")
     print(f"  K-Means labels: {len(kmeans_zips)} zip codes")
     print(f"  DBSCAN labels:  {len(dbscan_zips)} zip codes")
 
-    # Generate visualizations
-    print("\nGenerating correlation heatmap ...")
-    plot_correlation_heatmap(dataframe)
+    # Each chart is wrapped independently — if one fails (e.g.,
+    # due to insufficient data or an unexpected column value),
+    # the others should still be produced
+    charts = [
+        ("correlation heatmap",
+         lambda: plot_correlation_heatmap(dataframe)),
+        ("lagged cross-correlation",
+         lambda: plot_lagged_correlation(dataframe)),
+        ("cluster time series",
+         lambda: plot_cluster_time_series(dataframe, kmeans_zips)),
+        ("model comparison",
+         lambda: plot_model_comparison(kmeans_zips, dbscan_zips)),
+        ("RF feature importance",
+         lambda: plot_rf_feature_importance()),
+        ("RF actual vs predicted",
+         lambda: plot_rf_actual_vs_predicted()),
+        ("RF residuals",
+         lambda: plot_rf_residuals()),
+    ]
 
-    print("\nGenerating lagged cross-correlation ...")
-    plot_lagged_correlation(dataframe)
+    failures = []
+    for name, fn in charts:
+        print(f"\nGenerating {name} ...")
+        try:
+            fn()
+        except Exception as error:
+            logger.warning(f"Failed to generate {name}: {error}",
+                           exc_info=True)
+            print(f"  ⚠ {name} failed: {error}")
+            failures.append(name)
 
-    print("\nGenerating cluster time series ...")
-    plot_cluster_time_series(dataframe, kmeans_zips)
+    if failures:
+        logger.warning(f"Some visualizations failed: {failures}")
+        print(f"\n⚠ Failed visualizations: {failures}")
 
-    print("\nGenerating model comparison ...")
-    plot_model_comparison(kmeans_zips, dbscan_zips)
-
+    logger.info("Visualization stage complete")
     print(f"\nVisualization complete. Charts in data/visualizations/")
 
 

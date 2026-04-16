@@ -21,15 +21,19 @@ Usage:
     python analysis/model_3.py
 """
 
+import sys
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from sklearn.preprocessing import StandardScaler
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Path setup - this file is in analysis/, so .parent.parent
@@ -37,7 +41,6 @@ from sklearn.preprocessing import StandardScaler
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOAD_DIR = PROJECT_ROOT / "data" / "load"
 MODEL_OUTPUT_DIR = PROJECT_ROOT / "data" / "model_outputs"
-VISUALIZATIONS_DIR = PROJECT_ROOT / "data" / "visualizations"
 
 
 # ── Pre-Processing ──────────────────────────────────────────────
@@ -143,8 +146,10 @@ def train_random_forest(X_train, y_train):
 def evaluate_model(model, X_train, y_train, X_test, y_test,
                    feature_names):
     """
-    Evaluate Random Forest performance on both train and test sets,
-    then visualize feature importances and prediction quality.
+    Evaluate Random Forest performance on both train and test sets.
+
+    Computes metrics and saves predictions to CSV so that the
+    visualization stage can produce charts from flat files.
 
     Parameters
     ----------
@@ -198,76 +203,15 @@ def evaluate_model(model, X_train, y_train, X_test, y_test,
         print(f"\n  ⚠ Possible overfitting: R² gap = {r2_gap:.3f}")
         print(f"    Consider reducing max_depth or increasing min_samples_leaf")
 
-    # ── Feature Importance Plot ──
-    importances = pd.Series(
-        model.feature_importances_,
-        index=feature_names,
-    ).sort_values(ascending=True)
-
-    fig, ax = plt.subplots(figsize=(8, max(4, len(feature_names) * 0.5)))
-    importances.plot.barh(ax=ax, color="steelblue", edgecolor="white")
-    ax.set_title("Random Forest: Feature Importance",
-                 fontsize=13, fontweight="bold")
-    ax.set_xlabel("Importance (Mean Decrease in Impurity)")
-    plt.tight_layout()
-    VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    fig.savefig(VISUALIZATIONS_DIR / "rf_feature_importance.png",
-                dpi=150, bbox_inches="tight")
-    plt.close()
-    print("\n  Saved: rf_feature_importance.png")
-
-    # ── Actual vs Predicted Scatter Plot ──
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-    # Training set
-    ax1.scatter(y_train, train_predictions, alpha=0.3, s=20,
-                edgecolor="white")
-    max_val = max(y_train.max(), train_predictions.max())
-    ax1.plot([0, max_val], [0, max_val], "r--", linewidth=2,
-             label="Perfect prediction")
-    ax1.set_xlabel("Actual Foreclosure Notices")
-    ax1.set_ylabel("Predicted Foreclosure Notices")
-    ax1.set_title(f"Training Set (R² = {metrics['train_r2']:.3f})")
-    ax1.legend()
-
-    # Test set
-    ax2.scatter(y_test, test_predictions, alpha=0.3, s=20,
-                edgecolor="white", color="coral")
-    max_val = max(y_test.max(), test_predictions.max())
-    ax2.plot([0, max_val], [0, max_val], "r--", linewidth=2,
-             label="Perfect prediction")
-    ax2.set_xlabel("Actual Foreclosure Notices")
-    ax2.set_ylabel("Predicted Foreclosure Notices")
-    ax2.set_title(f"Test Set (R² = {metrics['test_r2']:.3f})")
-    ax2.legend()
-
-    fig.suptitle("Random Forest: Actual vs Predicted",
-                 fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    fig.savefig(VISUALIZATIONS_DIR / "rf_actual_vs_predicted.png",
-                dpi=150, bbox_inches="tight")
-    plt.close()
-    print("  Saved: rf_actual_vs_predicted.png")
-
-    # ── Residuals Distribution ──
-    test_residuals = y_test - test_predictions
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.hist(test_residuals, bins=40, edgecolor="white", alpha=0.8)
-    ax.axvline(0, color="red", linestyle="--", linewidth=2)
-    ax.set_xlabel("Residual (Actual - Predicted)")
-    ax.set_ylabel("Count")
-    ax.set_title("Random Forest: Test Set Residuals",
-                 fontsize=13, fontweight="bold")
-    median_residual = test_residuals.median()
-    ax.axvline(median_residual, color="orange", linestyle="--",
-               label=f"Median: {median_residual:.1f}")
-    ax.legend()
-    plt.tight_layout()
-    fig.savefig(VISUALIZATIONS_DIR / "rf_residuals.png",
-                dpi=150, bbox_inches="tight")
-    plt.close()
-    print("  Saved: rf_residuals.png")
+    # Save predictions to CSV 
+    predictions_df = pd.DataFrame({
+        "split": (["train"] * len(y_train)) + (["test"] * len(y_test)),
+        "actual": pd.concat([y_train, y_test], ignore_index=True),
+        "predicted": np.concatenate([train_predictions, test_predictions]),
+    })
+    predictions_path = MODEL_OUTPUT_DIR / "rf_predictions.csv"
+    predictions_df.to_csv(predictions_path, index=False)
+    print(f"\n  Saved: rf_predictions.csv")
 
     return metrics
 
@@ -292,42 +236,63 @@ def main():
     None
     """
     MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Starting Random Forest analysis")
 
     # Load the merged analysis-ready dataset
     print("\nLoading merged data from data/load/ ...")
-    dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    try:
+        dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    except FileNotFoundError as error:
+        logger.error(f"Merged dataset not found: {error}", exc_info=True)
+        print(f"\n  ❌ Merged dataset not found. Run etl/load.py first.")
+        sys.exit(1)
     print(f"  Loaded {len(dataframe)} records")
 
-    # Pre-processing: prepare features and temporal split
-    print("\nPreparing supervised data ...")
-    X_train, X_test, y_train, y_test, feature_names = \
-        prepare_supervised_data(dataframe)
+    try:
+        # Pre-processing: prepare features and temporal split
+        print("\nPreparing supervised data ...")
+        X_train, X_test, y_train, y_test, feature_names = \
+            prepare_supervised_data(dataframe)
 
-    # Modeling: train Random Forest with cross-validation
-    print("\nTraining Random Forest ...")
-    model = train_random_forest(X_train, y_train)
+        # Modeling: train Random Forest with cross-validation
+        print("\nTraining Random Forest ...")
+        model = train_random_forest(X_train, y_train)
 
-    # Evaluation: metrics, feature importance, visualizations
-    print("\nEvaluating model ...")
-    metrics = evaluate_model(model, X_train, y_train, X_test, y_test,
-                             feature_names)
+        # Evaluation: metrics, feature importance, visualizations
+        print("\nEvaluating model ...")
+        metrics = evaluate_model(model, X_train, y_train, X_test, y_test,
+                                 feature_names)
+        logger.info(f"RF test R²={metrics['test_r2']:.3f}, "
+                    f"RMSE={metrics['test_rmse']:.2f}")
+    except Exception as error:
+        logger.error(f"Random Forest analysis failed: {error}",
+                     exc_info=True)
+        print(f"\n  ❌ Random Forest analysis failed: {error}")
+        sys.exit(1)
 
     # Save outputs to data/model_outputs/
-    metrics_df = pd.DataFrame([metrics])
-    metrics_df.to_csv(MODEL_OUTPUT_DIR / "rf_evaluation_metrics.csv",
-                      index=False)
-    print("\n  Saved: rf_evaluation_metrics.csv")
-
-    # Save feature importances
-    importances_df = pd.DataFrame({
-        "feature": feature_names,
-        "importance": model.feature_importances_,
-    }).sort_values("importance", ascending=False)
-    importances_df.to_csv(MODEL_OUTPUT_DIR / "rf_feature_importances.csv",
+    try:
+        metrics_df = pd.DataFrame([metrics])
+        metrics_df.to_csv(MODEL_OUTPUT_DIR / "rf_evaluation_metrics.csv",
                           index=False)
+
+        # Save feature importances
+        importances_df = pd.DataFrame({
+            "feature": feature_names,
+            "importance": model.feature_importances_,
+        }).sort_values("importance", ascending=False)
+        importances_df.to_csv(
+            MODEL_OUTPUT_DIR / "rf_feature_importances.csv", index=False
+        )
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save RF outputs: {error}", exc_info=True)
+        print(f"\n  ⚠ Failed to save outputs: {error}")
+
+    print("\n  Saved: rf_evaluation_metrics.csv")
     print("  Saved: rf_feature_importances.csv")
 
+    logger.info("Random Forest analysis complete")
     print("\nRandom Forest analysis complete.")
 
 
