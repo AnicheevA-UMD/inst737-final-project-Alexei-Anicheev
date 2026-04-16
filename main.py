@@ -121,9 +121,7 @@ def main():
 
     run_stage("DBSCAN CLUSTERING", "analysis/model_2.py")
 
-    # Model 3 is scaffolding only — allow it to "fail" gracefully
-    run_stage("RANDOM FOREST (scaffolding)", "analysis/model_3.py",
-              allow_failure=True)
+    run_stage("RANDOM FOREST REGRESSION", "analysis/model_3.py")
 
     # ── Visualization ──
 
@@ -138,7 +136,7 @@ def main():
     print("  data/extracted/      — raw API pulls")
     print("  data/transformed/    — cleaned datasets")
     print("  data/load/           — merged analysis-ready data")
-    print("  data/model_outputs/  — cluster labels, profiles")
+    print("  data/model_outputs/  — cluster labels, profiles, RF metrics")
     print("  data/visualizations/ — all charts and plots")
 
 
