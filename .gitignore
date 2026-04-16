@@ -25,6 +25,9 @@ data/model_outputs/
  
 # Generated visualizations (reproducible from vis scripts)
 data/visualizations/
+
+# Pipeline logs (generated during runs, can grow large)
+logs/
  
 # Keep reference tables tracked in git (small, manually curated)
 !data/reference-tables/
