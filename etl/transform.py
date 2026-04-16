@@ -15,11 +15,18 @@ Usage:
 """
 
 import re
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Path setup - this file is in etl/, so .parent.parent reaches
@@ -375,15 +382,6 @@ def transform_sewer_overflows(filepath):
     return aggregated
 
 
-# ── Future Dataset Transformers ─────────────────────────────────
-# To add a new dataset, create a function following this template.
-# Each transformer should:
-#   1. Read the raw CSV from data/extracted/
-#   2. Standardize zip codes using standardize_zip()
-#   3. Parse dates into year and quarter
-#   4. Aggregate to the (zip_code, year, quarter) grain
-#   5. Return a clean DataFrame
-
 
 def transform_waste_violations(filepath):
     """
@@ -462,12 +460,74 @@ def transform_waste_violations(filepath):
 # ── Main Entry Point ────────────────────────────────────────────
 
 
+def transform_and_save(transformer_fn, input_name, output_name,
+                        label):
+    """
+    Run one dataset's transform, EDA, and save with error handling.
+
+    Wraps each individual transformation in a try/except so that
+    one bad dataset does not block the others from processing.
+    Errors are logged with full traceback for later debugging.
+
+    Parameters
+    ----------
+    transformer_fn : callable
+        The transform_* function to call for this dataset.
+    input_name : str
+        Filename of the raw CSV in data/extracted/.
+    output_name : str
+        Filename for the cleaned CSV in data/transformed/.
+    label : str
+        Human-readable name for console output and logs.
+
+    Returns
+    -------
+    bool
+        True if the transformation succeeded, False otherwise.
+    """
+    print(f"\nTransforming {label.lower()} data ...")
+    logger.info(f"Starting transformation: {label}")
+
+    try:
+        dataframe = transformer_fn(EXTRACTED_DIR / input_name)
+    except FileNotFoundError as error:
+        logger.error(f"Raw file not found for {label}: {error}",
+                     exc_info=True)
+        print(f"  ❌ {label}: raw file not found")
+        return False
+    except Exception as error:
+        logger.error(f"Transformation failed for {label}: {error}",
+                     exc_info=True)
+        print(f"  ❌ {label}: {error}")
+        return False
+
+    try:
+        dataframe.to_csv(TRANSFORMED_DIR / output_name, index=False)
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save cleaned {label}: {error}",
+                     exc_info=True)
+        print(f"  ❌ {label}: save failed")
+        return False
+    
+    try:
+        run_eda(dataframe, label)
+    except Exception as error:
+        logger.warning(f"EDA failed for {label}: {error}", exc_info=True)
+        print(f"  ⚠ EDA failed for {label}, continuing")
+
+    logger.info(f"Completed transformation: {label} "
+                f"({len(dataframe)} records)")
+    return True
+
+
 def main():
     """
     Entry point for the transformation pipeline.
 
     Reads each raw dataset from data/extracted/, transforms it,
     runs EDA, and saves the cleaned result to data/transformed/.
+    Each dataset is processed independently so a failure in one
+    does not block the others.
 
     Parameters
     ----------
@@ -480,41 +540,43 @@ def main():
     # Ensure the output directory exists
     TRANSFORMED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Transform foreclosure data
-    print("\nTransforming foreclosure data ...")
-    foreclosures = transform_foreclosures(
-        EXTRACTED_DIR / "foreclosures_raw.csv"
-    )
-    foreclosures.to_csv(TRANSFORMED_DIR / "foreclosures_clean.csv",
-                        index=False)
-    run_eda(foreclosures, "Foreclosures")
+    logger.info("Starting transformation stage")
 
-    # Transform EV registration data
-    print("\nTransforming EV registration data ...")
-    ev_registrations = transform_ev_registrations(
-        EXTRACTED_DIR / "ev_registrations_raw.csv"
-    )
-    ev_registrations.to_csv(TRANSFORMED_DIR / "ev_registrations_clean.csv",
-                            index=False)
-    run_eda(ev_registrations, "EV Registrations")
+    # Each dataset is transformed independently so that a failure
+    # in one does not prevent the others from being processed
+    results = {
+        "Foreclosures": transform_and_save(
+            transform_foreclosures,
+            "foreclosures_raw.csv",
+            "foreclosures_clean.csv",
+            "Foreclosures",
+        ),
+        "EV Registrations": transform_and_save(
+            transform_ev_registrations,
+            "ev_registrations_raw.csv",
+            "ev_registrations_clean.csv",
+            "EV Registrations",
+        ),
+        "Sewer Overflows": transform_and_save(
+            transform_sewer_overflows,
+            "sewer_overflows_raw.csv",
+            "sewer_overflows_clean.csv",
+            "Sewer Overflows",
+        ),
+        "Waste Violations": transform_and_save(
+            transform_waste_violations,
+            "waste_violations_raw.csv",
+            "waste_violations_clean.csv",
+            "Waste Violations",
+        ),
+    }
 
-    # Transform sewer overflow data
-    print("\nTransforming sewer overflow data ...")
-    sewer_overflows = transform_sewer_overflows(
-        EXTRACTED_DIR / "sewer_overflows_raw.csv"
-    )
-    sewer_overflows.to_csv(TRANSFORMED_DIR / "sewer_overflows_clean.csv",
-                           index=False)
-    run_eda(sewer_overflows, "Sewer Overflows")
-
-    # Transform solid waste violations data
-    print("\nTransforming waste violations data ...")
-    waste_violations = transform_waste_violations(
-        EXTRACTED_DIR / "waste_violations_raw.csv"
-    )
-    waste_violations.to_csv(TRANSFORMED_DIR / "waste_violations_clean.csv",
-                            index=False)
-    run_eda(waste_violations, "Waste Violations")
+    failed = [name for name, success in results.items() if not success]
+    if failed:
+        logger.warning(f"Transformation completed with failures: {failed}")
+        print(f"\n⚠ Failed to transform: {failed}")
+        # Non-zero exit if everything failed, zero if partial success
+        sys.exit(1 if len(failed) == len(results) else 0)
 
     print("\nTransformation complete. Cleaned files in data/transformed/")
 

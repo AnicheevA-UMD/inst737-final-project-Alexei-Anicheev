@@ -16,10 +16,17 @@ Usage:
 
 import argparse
 import os
+import sys
 import time
 import pandas as pd
 import requests
 from pathlib import Path
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Dataset registry - central configuration for all datasets
@@ -119,11 +126,22 @@ def fetch_dataset(endpoint, app_token=None, limit=50000, max_records=None):
         try:
             response = requests.get(url, params=params, headers=headers, timeout=60)
             response.raise_for_status()
-        except requests.exceptions.RequestException as error:
-            print(f"  WARNING: Request failed: {error}")
+        except requests.exceptions.Timeout as error:
+            logger.warning(f"Request timeout at offset={offset}: {error}")
+            print(f"  WARNING: Request timed out: {error}")
             if total_fetched > 0:
+                logger.info(f"Returning {total_fetched} records fetched before timeout")
                 print(f"  Returning {total_fetched} records fetched so far.")
                 break
+            raise
+        except requests.exceptions.RequestException as error:
+            logger.warning(f"Request failed at offset={offset}: {error}")
+            print(f"  WARNING: Request failed: {error}")
+            if total_fetched > 0:
+                logger.info(f"Returning {total_fetched} records fetched before failure")
+                print(f"  Returning {total_fetched} records fetched so far.")
+                break
+            logger.error(f"No records fetched; re-raising exception")
             raise
 
         batch = response.json()
@@ -151,6 +169,7 @@ def fetch_dataset(endpoint, app_token=None, limit=50000, max_records=None):
         time.sleep(0.5)
 
     dataset = pd.DataFrame(all_rows)
+    logger.info(f"Extracted {len(dataset)} records from endpoint {endpoint}")
     print(f"  DONE: {len(dataset)} total records retrieved")
     return dataset
 
@@ -160,6 +179,7 @@ def save_extracted(dataframe, filename):
     Save a raw DataFrame to CSV in the data/extracted/ directory.
 
     Creates the output directory if it does not already exist.
+    Logs any file I/O errors for later debugging.
 
     Parameters
     ----------
@@ -177,7 +197,14 @@ def save_extracted(dataframe, filename):
     EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
 
     output_path = EXTRACTED_DIR / filename
-    dataframe.to_csv(output_path, index=False)
+    try:
+        dataframe.to_csv(output_path, index=False)
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save to {output_path}: {error}",
+                     exc_info=True)
+        raise
+
+    logger.info(f"Saved {len(dataframe)} records to {output_path}")
     print(f"  Saved to {output_path}")
     return output_path
 
@@ -241,6 +268,9 @@ def main():
     targets = [args.dataset] if args.dataset else list(DATASETS.keys())
 
     # Loop through each target dataset and extract it
+    logger.info(f"Starting extraction for {len(targets)} dataset(s): {targets}")
+    failed_datasets = []
+
     for key in targets:
         dataset_info = DATASETS[key]
         print(f"\n{'=' * 60}")
@@ -248,23 +278,42 @@ def main():
         print(f"Endpoint:   {dataset_info['endpoint']}")
         print(f"{'=' * 60}")
 
-        # Fetch the dataset from the API
-        dataframe = fetch_dataset(
-            endpoint=dataset_info["endpoint"],
-            app_token=args.token,
-            max_records=args.max_records,
-        )
+        try:
+            # Fetch the dataset from the API
+            dataframe = fetch_dataset(
+                endpoint=dataset_info["endpoint"],
+                app_token=args.token,
+                max_records=args.max_records,
+            )
 
-        # Save the raw data to CSV in data/extracted/
-        save_extracted(dataframe, dataset_info["filename"])
+            # Save the raw data to CSV in data/extracted/
+            save_extracted(dataframe, dataset_info["filename"])
 
-        # Print a quick profile for verification
-        print_data_profile(dataframe)
+            # Print a quick profile for verification
+            print_data_profile(dataframe)
+        except requests.exceptions.RequestException as error:
+            # Network-level failures: likely transient
+            logger.error(f"Failed to extract {key} due to network error: "
+                         f"{error}", exc_info=True)
+            print(f"\n  ❌ {key}: network error, skipping")
+            failed_datasets.append(key)
+        except Exception as error:
+            # Any other error (bad response format, etc.)
+            logger.error(f"Failed to extract {key}: {error}", exc_info=True)
+            print(f"\n  ❌ {key}: {error}")
+            failed_datasets.append(key)
 
+    if failed_datasets:
+        logger.warning(f"Extraction completed with failures: {failed_datasets}")
+        print(f"\n⚠ Failed datasets: {failed_datasets}")
+        # Exit with non-zero status so main.py's run_stage knows
+        # something went wrong but we still have partial data
+        sys.exit(1 if len(failed_datasets) == len(targets) else 0)
+
+    logger.info("Extraction complete for all datasets")
     print("\nExtraction complete.")
 
 
-# Standard Python entry point guard - ensures main() only runs
-# when this script is executed directly, not when imported as a module
+# Standard Python entry point guard 
 if __name__ == "__main__":
     main()

@@ -13,8 +13,15 @@ Usage:
     python etl/load.py
 """
 
+import sys
 import pandas as pd
 from pathlib import Path
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Path setup - this file is in etl/, so .parent.parent reaches
@@ -196,7 +203,9 @@ def main():
 
     Reads each cleaned dataset from data/transformed/, merges
     them into a single analysis-ready file, and saves it to
-    data/load/.
+    data/load/. Failures to load any required input are logged
+    and halt the pipeline since the merge cannot proceed with
+    missing datasets.
 
     Parameters
     ----------
@@ -208,38 +217,72 @@ def main():
     """
     # Ensure the output directory exists
     LOAD_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("Starting load stage")
 
     # Read each cleaned dataset from data/transformed/
     print("\nLoading cleaned datasets ...")
-    foreclosures = pd.read_csv(TRANSFORMED_DIR / "foreclosures_clean.csv")
-    print(f"  Foreclosures:     {len(foreclosures)} records")
+    try:
+        foreclosures = pd.read_csv(TRANSFORMED_DIR / "foreclosures_clean.csv")
+        print(f"  Foreclosures:     {len(foreclosures)} records")
 
-    ev_registrations = pd.read_csv(TRANSFORMED_DIR / "ev_registrations_clean.csv")
-    print(f"  EV registrations: {len(ev_registrations)} records")
+        ev_registrations = pd.read_csv(
+            TRANSFORMED_DIR / "ev_registrations_clean.csv"
+        )
+        print(f"  EV registrations: {len(ev_registrations)} records")
 
-    sewer_overflows = pd.read_csv(TRANSFORMED_DIR / "sewer_overflows_clean.csv")
-    print(f"  Sewer overflows:  {len(sewer_overflows)} records")
+        sewer_overflows = pd.read_csv(
+            TRANSFORMED_DIR / "sewer_overflows_clean.csv"
+        )
+        print(f"  Sewer overflows:  {len(sewer_overflows)} records")
 
-    waste_violations = pd.read_csv(TRANSFORMED_DIR / "waste_violations_clean.csv")
-    print(f"  Waste violations: {len(waste_violations)} records")
+        waste_violations = pd.read_csv(
+            TRANSFORMED_DIR / "waste_violations_clean.csv"
+        )
+        print(f"  Waste violations: {len(waste_violations)} records")
+    except FileNotFoundError as error:
+        logger.error(f"Cleaned dataset missing: {error}", exc_info=True)
+        print(f"\n  ❌ Cleaned dataset missing: {error}")
+        print("  Run etl/transform.py first.")
+        sys.exit(1)
+    except pd.errors.EmptyDataError as error:
+        logger.error(f"Cleaned dataset is empty: {error}", exc_info=True)
+        print(f"\n  ❌ Cleaned dataset is empty: {error}")
+        sys.exit(1)
 
     # Merge all datasets on (zip_code, year, quarter)
-    print("\nMerging datasets ...")
-    merged = merge_datasets(foreclosures, ev_registrations, sewer_overflows,
-                            waste_violations)
+    try:
+        print("\nMerging datasets ...")
+        merged = merge_datasets(foreclosures, ev_registrations,
+                                sewer_overflows, waste_violations)
 
-    # Create composite unique IDs for each record
-    print("\nCreating unique IDs ...")
-    merged = create_unique_ids(merged)
+        # Create composite unique IDs for each record
+        print("\nCreating unique IDs ...")
+        merged = create_unique_ids(merged)
+    except KeyError as error:
+        logger.error(f"Schema mismatch during merge: {error}",
+                     exc_info=True)
+        print(f"\n  ❌ Schema mismatch during merge: {error}")
+        print("  One or more cleaned datasets is missing required columns.")
+        sys.exit(1)
 
     # Save the analysis-ready dataset to data/load/
     output_path = LOAD_DIR / "merged_analysis.csv"
-    merged.to_csv(output_path, index=False)
+    try:
+        merged.to_csv(output_path, index=False)
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save merged dataset: {error}",
+                     exc_info=True)
+        print(f"\n  ❌ Failed to save merged dataset: {error}")
+        sys.exit(1)
+
     print(f"\n  Saved merged dataset to {output_path}")
+    logger.info(f"Saved merged dataset ({len(merged)} records) "
+                f"to {output_path}")
 
     # Print summary for verification
     print_merge_summary(merged)
 
+    logger.info("Load stage complete")
     print("\nLoad complete.")
 
 
