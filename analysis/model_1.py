@@ -13,6 +13,7 @@ Usage:
     python analysis/model_1.py
 """
 
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -23,6 +24,12 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, silhouette_samples
 from scipy import stats
+
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Path setup - this file is in analysis/, so .parent.parent
@@ -386,7 +393,8 @@ def main():
 
     Runs the full pipeline: load data, engineer features,
     preprocess, find optimal k, fit K-Means, visualize,
-    and profile clusters.
+    and profile clusters. Critical failures halt the stage
+    since downstream steps depend on upstream results.
 
     Parameters
     ----------
@@ -399,40 +407,65 @@ def main():
     MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
+    logger.info("Starting K-Means analysis")
+
     # Load the merged analysis-ready dataset
+
     print("\nLoading merged data from data/load/ ...")
-    dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    try:
+        dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    except FileNotFoundError as error:
+        logger.error(f"Merged dataset not found: {error}", exc_info=True)
+        print(f"\n  ❌ Merged dataset not found. Run etl/load.py first.")
+        sys.exit(1)
     print(f"  Loaded {len(dataframe)} records")
+    logger.info(f"Loaded {len(dataframe)} records for clustering")
 
-    # Pre-processing: build per-zip feature vectors
-    print("\nBuilding per-zip-code features ...")
-    features = build_zip_features(dataframe)
+    try:
+        # Pre-processing: build per-zip feature vectors
+        print("\nBuilding per-zip-code features ...")
+        features = build_zip_features(dataframe)
 
-    print("\nStandardizing features ...")
-    features_clean, X, feature_names = preprocess_features(features)
+        print("\nStandardizing features ...")
+        features_clean, X, feature_names = preprocess_features(features)
 
-    # Modeling: find optimal k and run K-Means
-    print("\nFinding optimal cluster count ...")
-    best_k = find_optimal_k(X)
+        # Modeling: find optimal k and run K-Means
+        print("\nFinding optimal cluster count ...")
+        best_k = find_optimal_k(X)
 
-    print("\nRunning K-Means ...")
-    labels = run_kmeans(X, best_k)
+        print("\nRunning K-Means ...")
+        labels = run_kmeans(X, best_k)
+        logger.info(f"K-Means converged with k={best_k}")
 
-    # Evaluation: visualize and profile clusters
-    print("\nVisualizing clusters ...")
-    visualize_clusters(X, labels, feature_names)
+        # Evaluation: visualize and profile clusters
+        print("\nVisualizing clusters ...")
+        visualize_clusters(X, labels, feature_names)
 
-    print("\nProfiling clusters ...")
-    profiles = profile_clusters(features_clean, labels, feature_names)
+        print("\nProfiling clusters ...")
+        profiles = profile_clusters(features_clean, labels, feature_names)
+    except Exception as error:
+        # Any failure during feature engineering or modeling gets
+        # logged with full traceback
+        logger.error(f"K-Means analysis failed: {error}", exc_info=True)
+        print(f"\n  ❌ K-Means analysis failed: {error}")
+        sys.exit(1)
 
     # Save outputs to data/model_outputs/
-    features_clean["kmeans_cluster"] = labels
-    features_clean.to_csv(MODEL_OUTPUT_DIR / "kmeans_labeled_zips.csv",
-                          index=False)
-    profiles.to_csv(MODEL_OUTPUT_DIR / "kmeans_cluster_profiles.csv")
+    try:
+        features_clean["kmeans_cluster"] = labels
+        features_clean.to_csv(MODEL_OUTPUT_DIR / "kmeans_labeled_zips.csv",
+                              index=False)
+        profiles.to_csv(MODEL_OUTPUT_DIR / "kmeans_cluster_profiles.csv")
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save K-Means outputs: {error}",
+                     exc_info=True)
+        print(f"\n  ⚠ Failed to save outputs: {error}")
+        # Don't exit here — the analysis succeeded, only the save failed
+
     print("\n  Saved: kmeans_labeled_zips.csv")
     print("  Saved: kmeans_cluster_profiles.csv")
 
+    logger.info("K-Means analysis complete")
     print("\nK-Means analysis complete.")
 
 
