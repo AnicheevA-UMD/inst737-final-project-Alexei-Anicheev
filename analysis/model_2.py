@@ -36,6 +36,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from model_1 import build_zip_features, preprocess_features
 
+# Add project root to path so logging_config can be imported
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # Path setup - this file is in analysis/, so .parent.parent
 # reaches the project root
@@ -307,8 +313,6 @@ def profile_dbscan(features_clean, labels, feature_names):
                 print(f"      {feature}: {row[feature]:.2f}")
 
         # Create a comparison chart: noise points vs cluster mean
-        # This shows exactly how outlier zip codes deviate from
-        # the main population
         if len(cluster_ids) > 0:
             cluster_mean = clustered[feature_names].mean()
             noise_mean = noise_zips[feature_names].mean()
@@ -354,50 +358,69 @@ def main():
     MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     VISUALIZATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
+    logger.info("Starting DBSCAN analysis")
+
     # Load the merged analysis-ready dataset
     print("\nLoading merged data from data/load/ ...")
-    dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    try:
+        dataframe = pd.read_csv(LOAD_DIR / "merged_analysis.csv")
+    except FileNotFoundError as error:
+        logger.error(f"Merged dataset not found: {error}", exc_info=True)
+        print(f"\n  ❌ Merged dataset not found. Run etl/load.py first.")
+        sys.exit(1)
     print(f"  Loaded {len(dataframe)} records")
+    logger.info(f"Loaded {len(dataframe)} records for DBSCAN")
 
-    # Pre-processing: build per-zip feature vectors
-    # Uses shared functions from model_1.py
-    print("\nBuilding per-zip-code features ...")
-    features = build_zip_features(dataframe)
+    try:
+        # Pre-processing: build per-zip feature vectors
+        print("\nBuilding per-zip-code features ...")
+        features = build_zip_features(dataframe)
 
-    print("\nStandardizing features ...")
-    features_clean, X, feature_names = preprocess_features(features)
+        print("\nStandardizing features ...")
+        features_clean, X, feature_names = preprocess_features(features)
 
-    # Modeling: find optimal eps and run DBSCAN
-    print("\nFinding optimal eps ...")
-    eps = find_optimal_eps(X, min_samples=5)
+        # Modeling: find optimal eps and run DBSCAN
+        print("\nFinding optimal eps ...")
+        eps = find_optimal_eps(X, min_samples=5)
+        logger.info(f"DBSCAN eps selected: {eps:.2f}")
 
-    print("\nRunning DBSCAN ...")
-    labels = run_dbscan(X, eps, min_samples=5)
+        print("\nRunning DBSCAN ...")
+        labels = run_dbscan(X, eps, min_samples=5)
 
-    # Evaluation: visualize and profile clusters
-    print("\nVisualizing clusters ...")
-    visualize_dbscan(X, labels, feature_names)
+        # Evaluation: visualize and profile clusters
+        print("\nVisualizing clusters ...")
+        visualize_dbscan(X, labels, feature_names)
 
-    print("\nProfiling clusters ...")
-    profiles, noise_zips = profile_dbscan(features_clean, labels,
-                                           feature_names)
+        print("\nProfiling clusters ...")
+        profiles, noise_zips = profile_dbscan(features_clean, labels,
+                                               feature_names)
+    except Exception as error:
+        logger.error(f"DBSCAN analysis failed: {error}", exc_info=True)
+        print(f"\n  ❌ DBSCAN analysis failed: {error}")
+        sys.exit(1)
 
     # Save outputs to data/model_outputs/
-    features_clean["dbscan_cluster"] = labels
-    features_clean.to_csv(MODEL_OUTPUT_DIR / "dbscan_labeled_zips.csv",
+    try:
+        features_clean["dbscan_cluster"] = labels
+        features_clean.to_csv(MODEL_OUTPUT_DIR / "dbscan_labeled_zips.csv",
+                              index=False)
+        if len(profiles) > 0:
+            profiles.to_csv(MODEL_OUTPUT_DIR / "dbscan_cluster_profiles.csv")
+        noise_zips.to_csv(MODEL_OUTPUT_DIR / "dbscan_noise_zips.csv",
                           index=False)
-    if len(profiles) > 0:
-        profiles.to_csv(MODEL_OUTPUT_DIR / "dbscan_cluster_profiles.csv")
-    noise_zips.to_csv(MODEL_OUTPUT_DIR / "dbscan_noise_zips.csv",
-                      index=False)
+    except (OSError, IOError) as error:
+        logger.error(f"Failed to save DBSCAN outputs: {error}",
+                     exc_info=True)
+        print(f"\n  ⚠ Failed to save outputs: {error}")
+
     print("\n  Saved: dbscan_labeled_zips.csv")
     print("  Saved: dbscan_cluster_profiles.csv")
     print("  Saved: dbscan_noise_zips.csv")
 
+    logger.info("DBSCAN analysis complete")
     print("\nDBSCAN analysis complete.")
 
 
 # Ensures main() only runs when executed directly, not when imported
 if __name__ == "__main__":
     main()
-
